@@ -6,79 +6,9 @@ import fs from 'fs/promises'
 import inquirer from 'inquirer';
 import path from 'path'
 
+import { addToGitIgnore, getOPItem, getAWSAccounts, getAWSAccountDetails, validateCredentials } from './lib.js'
+
 const program = new Command();
-
-const getOPAccounts = async () => {
-  const { stdout} = await execa('op', ['account', 'ls', '--format=json']);
-  const accounts = JSON.parse(stdout);
-
-  return accounts
-}
-
-const getOPItems = async () => {
-  const accounts = await getOPAccounts();
-
-  const items = await Promise.all(accounts.map(async account => {
-    await execa('op', ['signin', '--account', account.user_uuid]);
-    const { stdout } = await execa('op', ['item', 'list', '--long', '--format=json']);
-    const items = JSON.parse(stdout);
-    
-    return items.map(item => ({ ...item, account_id: account.user_uuid }))
-  }));
-
-  return items.flat();
-}
-
-const getAWSAccounts = async () => {
-  const items = await getOPItems();
-
-  const awsAccounts = items.filter(item => item.tags?.includes('aws'));
-
-  return awsAccounts
-}
-
-const getAWSAccountDetails = async env => {
-  try {
-    console.log(env)
-    const { stdout } = await execa('aws', ['sts', 'get-caller-identity', '--output', 'json'], { env: env })
-    return JSON.parse(stdout);
-  } catch (error) {
-    console.error(error)
-    process.exit(1)
-  }
-}
-
-const getOPItem = async (item_id, account_id) => {
-  const { stdout } = await execa('op', ['item', 'get', item_id, '--format=json', '--account', account_id]);
-  return JSON.parse(stdout);
-}
-
-const isGitRepo = async () => {
-  try {
-    const status = await execa('git', ['status'])
-    return true
-  } catch (error) {
-    return false
-  }
-}
-
-const checkGitIgnore = async path => {
-  try {
-    const { stdout } = await execa('git', ['check-ignore', path])
-    return true
-  } catch (error) {
-    return false
-  }
-}
-
-const addToGitIgnore = async path => {
-  const isRepo = await isGitRepo();
-  const isIgnored = await checkGitIgnore(path)
-  if(isRepo && !isIgnored) {
-    console.log(".credenv added to gitignore for you - don't want to accidentally commit these :)")
-    await fs.appendFile('.gitignore', path)
-  }
-}
 
 program
   .name('aws-op')
@@ -125,7 +55,8 @@ program.command('use')
       account = answers.account;
     }
 
-    const credentials = await getOPItem(account.id, account.account_id);
+    const loadedCredentials = await getOPItem(account.id, account.account_id);
+    const credentials = await validateCredentials(loadedCredentials);
 
     credentials.hasRoles = credentials.hasOwnProperty('sections') && credentials.sections.some(section => section.label === 'Roles');
     credentials.selectedRole = null
@@ -146,21 +77,19 @@ program.command('use')
     }
 
     env.AWS_OP_ID = account.id;
-    env.AWS_ACCESS_KEY_ID = credentials.fields.find(field => field.label === 'aws_access_key_id').value
-    env.AWS_SECRET_ACCESS_KEY = credentials.fields.find(field => field.label === 'aws_secret_access_key').value
+    env.AWS_ACCESS_KEY_ID = credentials.aws_key
+    env.AWS_SECRET_ACCESS_KEY = credentials.aws_secret
 
     const awsId = await getAWSAccountDetails(env);
 
     env.AWS_ACCOUNT_ID = awsId.Account;
-    env.AWS_MFA_DEVICE_ARN = credentials.fields.find(field => field.label === 'mfa_serial')?.value
+    env.AWS_MFA_DEVICE_ARN = credentials.mfa_serial
     env.AWS_VAULT = `${account.title}`
-
-    const OTP = credentials.fields.find(field => field.type === 'OTP')?.totp
 
     if(credentials.hasRoles && credentials.selectedRole !== null) {
       // Get role session
       const roleSessionName = `${awsId.Arn.split('/')[1]}-${credentials.selectedRole.label}`;
-      const { stdout: assumeRoleStdout } = await execa('aws', ['sts', 'assume-role', '--role-arn', credentials.selectedRole.value, '--role-session-name', roleSessionName, '--serial-number', env.AWS_MFA_DEVICE_ARN, '--token-code', OTP], { env: env })
+      const { stdout: assumeRoleStdout } = await execa('aws', ['sts', 'assume-role', '--role-arn', credentials.selectedRole.value, '--role-session-name', roleSessionName, '--serial-number', credentials.mfa_serial, '--token-code', credentials.otp], { env: env })
       const assumeRole = JSON.parse(assumeRoleStdout);
 
       env.AWS_ACCESS_KEY_ID = assumeRole.Credentials.AccessKeyId;
@@ -168,14 +97,19 @@ program.command('use')
       env.AWS_SESSION_TOKEN = assumeRole.Credentials.SessionToken;
     }
 
-    if(OTP !== undefined && credentials.selectedRole === null) {
+    if(credentials.mfa_enabled) {
       // Get session token
-      const { stdout: sessionTokenStdout } = await execa('aws', ['sts', 'get-session-token', '--serial-number', env.AWS_MFA_DEVICE_ARN, '--token-code', OTP], { env: env })
-      const sessionToken = JSON.parse(sessionTokenStdout);
-
-      env.AWS_ACCESS_KEY_ID = sessionToken.Credentials.AccessKeyId;
-      env.AWS_SECRET_ACCESS_KEY = sessionToken.Credentials.SecretAccessKey;
-      env.AWS_SESSION_TOKEN = sessionToken.Credentials.SessionToken;
+      try {
+        const { stdout: sessionTokenStdout } = await execa('aws', ['sts', 'get-session-token', '--serial-number', credentials.mfa_serial, '--token-code', credentials.otp], { env: env })
+        const sessionToken = JSON.parse(sessionTokenStdout);
+  
+        env.AWS_ACCESS_KEY_ID = sessionToken.Credentials.AccessKeyId;
+        env.AWS_SECRET_ACCESS_KEY = sessionToken.Credentials.SecretAccessKey;
+        env.AWS_SESSION_TOKEN = sessionToken.Credentials.SessionToken;
+      } catch (error) {
+        console.log(error.stderr)
+        process.exit(1);
+      }
     }
 
     // Write to .env file
