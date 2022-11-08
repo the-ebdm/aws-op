@@ -53,6 +53,33 @@ const getOPItem = async (item_id, account_id) => {
   return JSON.parse(stdout);
 }
 
+const isGitRepo = async () => {
+  try {
+    const status = await execa('git', ['status'])
+    return true
+  } catch (error) {
+    return false
+  }
+}
+
+const checkGitIgnore = async path => {
+  try {
+    const { stdout } = await execa('git', ['check-ignore', path])
+    return true
+  } catch (error) {
+    return false
+  }
+}
+
+const addToGitIgnore = async path => {
+  const isRepo = await isGitRepo();
+  const isIgnored = await checkGitIgnore(path)
+  if(isRepo && !isIgnored) {
+    console.log(".credenv added to gitignore for you - don't want to accidentally commit these :)")
+    await fs.appendFile('.gitignore', path)
+  }
+}
+
 program
   .name('aws-op')
   .description('CLI tool for managing AWS authentication via 1Password')
@@ -101,6 +128,7 @@ program.command('use')
     const credentials = await getOPItem(account.id, account.account_id);
 
     credentials.hasRoles = credentials.hasOwnProperty('sections') && credentials.sections.some(section => section.label === 'Roles');
+    credentials.selectedRole = null
 
     if(credentials.hasRoles) {
       const roles = credentials.fields.filter(field => field.section?.label === 'Roles')
@@ -140,7 +168,7 @@ program.command('use')
       env.AWS_SESSION_TOKEN = assumeRole.Credentials.SessionToken;
     }
 
-    if(OTP !== undefined) {
+    if(OTP !== undefined && credentials.selectedRole === null) {
       // Get session token
       const { stdout: sessionTokenStdout } = await execa('aws', ['sts', 'get-session-token', '--serial-number', env.AWS_MFA_DEVICE_ARN, '--token-code', OTP], { env: env })
       const sessionToken = JSON.parse(sessionTokenStdout);
@@ -154,8 +182,8 @@ program.command('use')
 
     const envFile = Object.entries(env).map(([key, value]) => `export ${key}=${value}`).join('\n')
 
-    await fs.writeFile(path.join(process.cwd(), '.credentials.json'), JSON.stringify(credentials), { encoding: 'utf8' })
     await fs.writeFile(path.join(process.cwd(), '.credenv'), envFile)
+    await addToGitIgnore('.credenv')
 
     console.log('Credentials written to .credenv')
     console.log('Run `source .credenv && rm .credenv` to use the credentials')
