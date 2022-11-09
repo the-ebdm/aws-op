@@ -1,9 +1,16 @@
 {
   "name": "aws-op",
-  "version": "1.0.0",
+  "version": "0.0.2",
   "main": "index.js",
   "license": "MIT",
   "type": "module",
+  "bin": {
+    "aws-op": "./index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ebdmuir/aws-op.git"
+  },
   "dependencies": {
     "aws-sdk": "^2.1243.0",
     "commander": "^9.4.1",
