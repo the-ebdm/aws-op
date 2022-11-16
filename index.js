@@ -29,6 +29,8 @@ program.command('list')
 program.command('use')
   .description('Login to an AWS account')
   .option('-a, --account <account>', '1Password item ID')
+  .option('-r, --role <role>', 'AWS role to assume')
+  .option('-d, --dry-run', 'Print actions without creating sessions')
   .action(async options => {
     const accounts = await getAWSAccounts();
     let account, stdout;
@@ -56,21 +58,25 @@ program.command('use')
     const credentials = await validateCredentials(loadedCredentials);
 
     credentials.hasRoles = credentials.hasOwnProperty('sections') && credentials.sections.some(section => section.label === 'Roles');
-    credentials.selectedRole = null
+    credentials.selectedRole = null;
+    credentials.hasSession = false;
 
     if(credentials.hasRoles) {
       const roles = credentials.fields.filter(field => field.section?.label === 'Roles')
 
-      const choices = [{ name: 'None', value: null }, ...roles.map(role => ({ name: role.label, value: role }))]
-
-      const answers = await inquirer.prompt([{
-        type: 'list',
-        name: 'role',
-        message: 'Which role do you want to use?',
-        choices: choices,
-      }]);
-
-      credentials.selectedRole = answers.role;
+      const choices = [{ name: 'None', value: null }, ...roles.map(role => ({ name: role.label, value: role.value, object: role }))]
+      if(options.hasOwnProperty('role')) {
+        credentials.selectedRole = choices.find(choice => choice.name === options.role)
+      } else {
+        const { role } = await inquirer.prompt([{
+          type: 'list',
+          name: 'role',
+          message: 'Which role do you want to use?',
+          choices: choices,
+        }]);
+  
+        credentials.selectedRole = role;
+      }
     }
 
     env.AWS_OP_ID = account.id;
@@ -92,9 +98,11 @@ program.command('use')
       env.AWS_ACCESS_KEY_ID = assumeRole.Credentials.AccessKeyId;
       env.AWS_SECRET_ACCESS_KEY = assumeRole.Credentials.SecretAccessKey;
       env.AWS_SESSION_TOKEN = assumeRole.Credentials.SessionToken;
+
+      credentials.hasSession = true;
     }
 
-    if(credentials.mfa_enabled) {
+    if(credentials.mfa_enabled && credentials.hasSession === false) {
       // Get session token
       try {
         const { stdout: sessionTokenStdout } = await execa('aws', ['sts', 'get-session-token', '--serial-number', credentials.mfa_serial, '--token-code', credentials.otp], { env: env })
