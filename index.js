@@ -20,14 +20,10 @@ program.command('list')
   .description('List all AWS accounts')
   .action(async () => {
     const accounts = await getAWSAccounts();
-    const answers = await inquirer.prompt([{
-      type: 'list',
-      name: 'account',
-      message: 'Which account do you want to use?',
-      choices: accounts.map(account => ({ name: account.title, value: account })),
-    }]);
 
-    console.log(answers.account)
+    accounts.forEach(account => {
+      console.log(account.title);
+    })
   });
 
 program.command('use')
