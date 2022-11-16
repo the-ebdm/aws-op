@@ -7,7 +7,7 @@
 
 ## Installation
 
-Should be as simple as `npm i -g aws-op` (once I get it published)
+Should be as simple as `npm i -g aws-op`
 
 ## Usage
 
