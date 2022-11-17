@@ -8,11 +8,15 @@ import fss from 'fs'
 import inquirer from 'inquirer';
 import path from 'path'
 
+import { getInstalledPathSync } from 'get-installed-path';
+
 import { addToGitIgnore, getOPItem, getAWSAccounts, getAWSAccountDetails, validateCredentials } from './lib.js'
 
 const program = new Command();
 
-const packageJson = JSON.parse(fss.readFileSync(path.resolve('./package.json'), 'utf8'));
+// Stupid bit of code to get the version from package.json 🤷‍♂️ Don't want to be manually updating this
+const packPath = getInstalledPathSync('aws-op')
+const packageJson = JSON.parse(fss.readFileSync(path.resolve(packPath, 'package.json'), 'utf8'));
 
 program
   .name('aws-op')

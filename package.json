@@ -15,6 +15,7 @@
     "aws-sdk": "^2.1243.0",
     "commander": "^9.4.1",
     "execa": "^6.1.0",
+    "get-installed-path": "^4.0.8",
     "inquirer": "^9.1.4"
   }
 }
