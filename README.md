@@ -18,3 +18,7 @@ Please open an issue if you have any problems or suggestions.
 Here's an example (obviously redacted for security)
 
 ![Redacted Example](assets/redacted-example.png?raw=true "Redacted Example")
+
+## Issues
+
+Please open an issue if you have any problems or suggestions.
