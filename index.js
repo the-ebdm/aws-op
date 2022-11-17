@@ -4,6 +4,7 @@ import { Command } from 'commander';
 import { execa } from 'execa';
 
 import fs from 'fs/promises'
+import fss from 'fs'
 import inquirer from 'inquirer';
 import path from 'path'
 
@@ -11,10 +12,12 @@ import { addToGitIgnore, getOPItem, getAWSAccounts, getAWSAccountDetails, valida
 
 const program = new Command();
 
+const packageJson = JSON.parse(fss.readFileSync(path.resolve('./package.json'), 'utf8'));
+
 program
   .name('aws-op')
   .description('CLI tool for managing AWS authentication via 1Password')
-  .version('0.0.1');
+  .version(packageJson.version);
 
 program.command('list')
   .description('List all AWS accounts')
